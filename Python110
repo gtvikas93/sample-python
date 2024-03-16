@@ -41,23 +41,24 @@ class SemanticSearch(Resource):
     def post(self):
         json_data = request.get_json(force=True)
         query = json_data['query']
-        accuracy = json_data.get('accuracy',
-                                 0.5)  # Example parameter to fine-tune accuracy (usage depends on implementation details)
+        top_k = json_data.get('top_k', 5)  # Return top_k results based on similarity
 
         query_embedding = encode_text([query])
-        # Ensure scores are calculated correctly for each item in the data_embeddings
-        scores = cosine_similarity(query_embedding, data_embeddings).squeeze()  # Adjusted line
+        scores = cosine_similarity(query_embedding, data_embeddings).squeeze()
 
-        # Ensure we're iterating properly over scores, handling both single and multiple results
-        if scores.ndim > 0:  # Handling multiple results
-            results = [(score.item(), idx) for idx, score in enumerate(scores) if score.item() > accuracy]
-        else:  # Handling single result
-            results = [(scores.item(), 0)] if scores.item() > accuracy else []
+        # Create a list of (score, index) tuples and sort them by score in descending order
+        if scores.ndim > 0:  # Multiple results
+            results = [(score.item(), idx) for idx, score in enumerate(scores)]
+        else:  # Single result
+            results = [(scores.item(), 0)]
 
-        results.sort(reverse=True)  # Sort by highest scores
+        # Sort results by score in descending order and select top_k results
+        results.sort(reverse=True, key=lambda x: x[0])
+        top_results = results[:top_k]
 
-        sorted_results = [{'score': score, 'data': data_df.iloc[idx].to_dict()} for score, idx in results]
-        return jsonify(sorted_results)
+        # Prepare and return the sorted top_k results
+        sorted_top_results = [{'score': score, 'data': data_df.iloc[idx].to_dict()} for score, idx in top_results]
+        return jsonify(sorted_top_results)
 
 
 api.add_resource(SemanticSearch, '/search')
