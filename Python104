@@ -1,0 +1,84 @@
+import torch
+from transformers import DistilBertTokenizer, DistilBertModel
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Load pre-trained DistilBERT tokenizer and model
+tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
+model = DistilBertModel.from_pretrained('distilbert-base-uncased')
+
+# Function to encode text using DistilBERT
+def encode_text(text):
+    input_ids = tokenizer.encode(text, return_tensors='pt')
+    with torch.no_grad():
+        outputs = model(input_ids)
+    last_hidden_states = outputs.last_hidden_state
+    return last_hidden_states
+
+# Function to calculate cosine similarity between two vectors
+def calculate_similarity(vector1, vector2):
+    sim = cosine_similarity(vector1, vector2)
+    return sim[0][0]
+
+# Function to check if a passage contains any of the keywords
+def contains_keywords(text, keywords):
+    text_lower = text.lower()
+    for keyword in keywords:
+        if keyword in text_lower:
+            return True
+    return False
+
+def extract_keywords(query, current_keywords):
+    # Tokenize the query
+    tokens = tokenizer.tokenize(query)
+
+    # Convert tokens to lowercase for case-insensitive matching
+    tokens_lower = [token.lower() for token in tokens]
+
+    # Extract keywords from tokens and current list of keywords
+    query_keywords = list(set(tokens_lower + current_keywords))
+
+    return query_keywords
+
+# Extend the dataset to include additional columns
+data = [
+    ["This is a high-quality laptop with powerful performance.", "electronics", "laptop", "performance", "high-quality"],
+    ["A stylish smartphone with an advanced camera system.", "electronics", "smartphone", "camera", "camera system","stylish"],
+    ["A comfortable pair of running shoes for daily exercise.", "clothing", "running shoes", "comfortable", "daily exercise"]
+]
+
+# Encode the data
+encoded_data = [encode_text(row[0]) for row in data]
+
+# Example query
+query = "I'm looking for a footwear for daily exercise"
+
+# Define initial keywords
+initial_keywords = ["camera", "photography", "photo", "picture", "footwear", "shoes"]
+
+# Extract keywords from the query
+keywords = extract_keywords(query, initial_keywords)
+
+# Encode the query
+encoded_query = encode_text(query)
+
+# Calculate similarities between query and data
+similarities = [calculate_similarity(encoded_query.squeeze(0), encoded_sentence.squeeze(0)) for encoded_sentence in encoded_data]
+
+# Combine data with similarities
+data_with_similarities = [(data[i], similarities[i]) for i in range(len(data))]
+
+# Sort the data based on similarities
+sorted_data = sorted(data_with_similarities, key=lambda x: x[1], reverse=True)
+
+# Print the sorted data
+print("Query:", query)
+print("Results:")
+if sorted_data:
+    for row, similarity in sorted_data:
+        print("Passage:", row[0])
+        print("Category:", row[1])
+        print("Keywords:", row[2:])
+        print("Similarity:", similarity)
+        print()
+else:
+    print("No relevant passages found.")
