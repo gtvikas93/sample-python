@@ -10,6 +10,24 @@ import numpy as np
 tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
 model = DistilBertModel.from_pretrained('distilbert-base-uncased')
 
+def encode_text_in_batches(texts, batch_size=32):
+    # Split texts into batches
+    batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
+    embeddings = []
+    
+    for batch in batches:
+        inputs = tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512)
+        with torch.no_grad():
+            batch_embeddings = model(**inputs).last_hidden_state.mean(dim=1)
+        embeddings.append(batch_embeddings)
+    
+    # Concatenate all batch embeddings
+    embeddings = torch.cat(embeddings, dim=0)
+    
+    return embeddings
+
+# Replace the direct encoding call with a call to the batch processing function
+
 
 # Function to encode text to embeddings using DistilBERT
 def encode_text(texts):
@@ -29,7 +47,7 @@ def load_data_from_excel(file_path):
 
 # Global variable to store embeddings (for demo purposes, better to handle with databases or caching in production)
 data_df = load_data_from_excel('data.xlsx')
-data_embeddings = encode_text(data_df['combined_text'].tolist())
+data_embeddings = encode_text_in_batches(data_df['combined_text'].tolist())
 
 # Flask app and API setup
 app = Flask(__name__)
