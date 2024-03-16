@@ -1,0 +1,66 @@
+from flask import Flask, request, jsonify
+from flask_restful import Api, Resource
+import pandas as pd
+from transformers import DistilBertTokenizer, DistilBertModel
+import torch
+from torch.nn.functional import cosine_similarity
+import numpy as np
+
+# Load DistilBERT model and tokenizer
+tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
+model = DistilBertModel.from_pretrained('distilbert-base-uncased')
+
+
+# Function to encode text to embeddings using DistilBERT
+def encode_text(texts):
+    inputs = tokenizer(texts, padding=True, truncation=True, return_tensors="pt", max_length=512)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1)
+
+
+# Preprocess and load data from Excel
+def load_data_from_excel(file_path):
+    df = pd.read_excel(file_path, engine='openpyxl')
+    # Combine all text columns into a single text (optional, based on your data)
+    df['combined_text'] = df.apply(lambda row: ' '.join(row.values.astype(str)), axis=1)
+    return df
+
+
+# Global variable to store embeddings (for demo purposes, better to handle with databases or caching in production)
+data_df = load_data_from_excel('data.xlsx')
+data_embeddings = encode_text(data_df['combined_text'].tolist())
+
+# Flask app and API setup
+app = Flask(__name__)
+api = Api(app)
+
+
+# Semantic search API Resource
+class SemanticSearch(Resource):
+    def post(self):
+        json_data = request.get_json(force=True)
+        query = json_data['query']
+        accuracy = json_data.get('accuracy',
+                                 0.5)  # Example parameter to fine-tune accuracy (usage depends on implementation details)
+
+        query_embedding = encode_text([query])
+        # Ensure scores are calculated correctly for each item in the data_embeddings
+        scores = cosine_similarity(query_embedding, data_embeddings).squeeze()  # Adjusted line
+
+        # Ensure we're iterating properly over scores, handling both single and multiple results
+        if scores.ndim > 0:  # Handling multiple results
+            results = [(score.item(), idx) for idx, score in enumerate(scores) if score.item() > accuracy]
+        else:  # Handling single result
+            results = [(scores.item(), 0)] if scores.item() > accuracy else []
+
+        results.sort(reverse=True)  # Sort by highest scores
+
+        sorted_results = [{'score': score, 'data': data_df.iloc[idx].to_dict()} for score, idx in results]
+        return jsonify(sorted_results)
+
+
+api.add_resource(SemanticSearch, '/search')
+
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)
