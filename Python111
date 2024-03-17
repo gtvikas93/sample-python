@@ -17,20 +17,20 @@ def encode_text(texts):
         outputs = model(**inputs)
     return outputs.last_hidden_state.mean(dim=1)
 
-# Modified function to load data, precompute embeddings, and apply attribute weights
-def load_data_and_weighted_embeddings(file_path, attribute_weights):
+# Modified function to load data, precompute embeddings in batches, and apply attribute weights
+def load_data_and_weighted_embeddings(file_path, attribute_weights, batch_size=32):
     df = pd.read_excel(file_path, engine='openpyxl')
     
-    # Assuming df columns match attribute_weights keys
-    weighted_embeddings = None
-    for attribute, weight in attribute_weights.items():
-        attribute_embeddings = encode_text(df[attribute].astype(str).tolist())
-        if weighted_embeddings is None:
-            weighted_embeddings = weight * attribute_embeddings
-        else:
-            weighted_embeddings += weight * attribute_embeddings
+    num_rows = len(df)
+    weighted_embeddings = torch.zeros((num_rows, model.config.dim))
     
-    # Normalize embeddings by total weight to keep scale consistent
+    for attribute, weight in attribute_weights.items():
+        for start_idx in range(0, num_rows, batch_size):
+            end_idx = start_idx + batch_size
+            batch_texts = df[attribute].iloc[start_idx:end_idx].astype(str).tolist()
+            attribute_embeddings = encode_text(batch_texts)
+            weighted_embeddings[start_idx:end_idx] += weight * attribute_embeddings
+    
     total_weight = sum(attribute_weights.values())
     weighted_embeddings /= total_weight
     
