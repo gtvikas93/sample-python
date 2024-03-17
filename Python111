@@ -1,0 +1,75 @@
+from flask import Flask, request, jsonify
+from flask_restful import Api, Resource
+import pandas as pd
+from transformers import DistilBertTokenizer, DistilBertModel
+import torch
+from torch.nn.functional import cosine_similarity
+import numpy as np
+
+# Initialize model and tokenizer
+tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
+model = DistilBertModel.from_pretrained('distilbert-base-uncased')
+
+# Function to encode text into embeddings
+def encode_text(texts):
+    inputs = tokenizer(texts, padding=True, truncation=True, return_tensors="pt", max_length=512)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1)
+
+# Modified function to load data, precompute embeddings, and apply attribute weights
+def load_data_and_weighted_embeddings(file_path, attribute_weights):
+    df = pd.read_excel(file_path, engine='openpyxl')
+    
+    # Assuming df columns match attribute_weights keys
+    weighted_embeddings = None
+    for attribute, weight in attribute_weights.items():
+        attribute_embeddings = encode_text(df[attribute].astype(str).tolist())
+        if weighted_embeddings is None:
+            weighted_embeddings = weight * attribute_embeddings
+        else:
+            weighted_embeddings += weight * attribute_embeddings
+    
+    # Normalize embeddings by total weight to keep scale consistent
+    total_weight = sum(attribute_weights.values())
+    weighted_embeddings /= total_weight
+    
+    return df, weighted_embeddings
+
+# Example attribute weights: adjust based on your specific attributes and desired importance
+attribute_weights = {
+    'Attribute1': 0.5,
+    'Attribute2': 0.3,
+    'Attribute3': 0.2
+}
+
+# Load data and compute weighted embeddings
+data_df, data_embeddings = load_data_and_weighted_embeddings('your_data.xlsx', attribute_weights)
+
+# Flask application setup
+app = Flask(__name__)
+api = Api(app)
+
+# API Resource for semantic search
+class SemanticSearch(Resource):
+    def post(self):
+        json_data = request.get_json(force=True)
+        query = json_data['query']
+        query_embedding = encode_text([query])
+        scores = cosine_similarity(query_embedding, data_embeddings).squeeze()
+        
+        if scores.ndim > 0:
+            results = [(score.item(), idx) for idx, score in enumerate(scores)]
+        else:
+            results = [(scores.item(), 0)]
+
+        results.sort(reverse=True, key=lambda x: x[0])
+        top_results = results[:5]  # Adjust the number of results as needed
+
+        sorted_top_results = [{'score': score, 'data': data_df.iloc[idx].to_dict()} for score, idx in top_results]
+        return jsonify(sorted_top_results)
+
+api.add_resource(SemanticSearch, '/search')
+
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)
